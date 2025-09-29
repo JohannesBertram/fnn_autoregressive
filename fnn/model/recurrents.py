@@ -285,8 +285,11 @@ class Rvt(Recurrent):
         k = self.proj_k(c, stream=stream).view(N, S, self.groups, self.group_channels, HW)
         v = self.proj_v(c, stream=stream).view(N, S, self.groups, self.group_channels, HW)
 
-        q = q / q.norm(p=2, dim=3, keepdim=True) * s
-        k = k / k.norm(p=2, dim=3, keepdim=True)
+        # Stabilized normalization (avoid division by zero -> NaNs)
+        q_norm = q.norm(p=2, dim=3, keepdim=True).clamp_min(1e-6)
+        k_norm = k.norm(p=2, dim=3, keepdim=True).clamp_min(1e-6)
+        q = q / q_norm * s
+        k = k / k_norm
 
         w = torch.einsum("N S G C Q , N S G C D -> N S G Q D", q, k).softmax(dim=-1)
         a = torch.einsum("N S G C D , N S G Q D -> N S G C Q", v, w).view(N, -1, H, W)
@@ -549,8 +552,11 @@ class CvtLstm(Recurrent):
         k = self.proj_k(z, stream=stream).view(N, S, self.groups, self.group_channels, HW)
         v = self.proj_v(z, stream=stream).view(N, S, self.groups, self.group_channels, HW)
 
-        q = q / q.norm(p=2, dim=3, keepdim=True) * s
-        k = k / k.norm(p=2, dim=3, keepdim=True)
+        # Stabilized normalization (avoid division by zero -> NaNs)
+        q_norm = q.norm(p=2, dim=3, keepdim=True).clamp_min(1e-6)
+        k_norm = k.norm(p=2, dim=3, keepdim=True).clamp_min(1e-6)
+        q = q / q_norm * s
+        k = k / k_norm
 
         w = torch.einsum("N S G C Q , N S G C D -> N S G Q D", q, k).softmax(dim=-1)
         a = torch.einsum("N S G C D , N S G Q D -> N S G C Q", v, w).view(N, -1, H, W)

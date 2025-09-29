@@ -110,7 +110,7 @@ class FeedforwardRecurrent(Core):
         """
         return self.recurrent.channels
 
-    def forward(self, perspective, modulation, stream=None):
+    def forward(self, perspective, modulation=None, stream=None):
         """
         Parameters
         ----------
@@ -132,9 +132,9 @@ class FeedforwardRecurrent(Core):
                 or
             [N, C, H', W'] -- stream is int
         """
-        f = self.feedforward([perspective], stream=stream)
-        m = modulation[:, :, None, None]
-        r = self.recurrent([f, m], stream=stream)
+        f = self.feedforward([perspective], stream=None)
+        #m = modulation[:, :, None, None]
+        r = self.recurrent([f, None], stream=stream)
         return r
 
 

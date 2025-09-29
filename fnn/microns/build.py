@@ -13,6 +13,7 @@ from fnn.model.readouts import PositionFeature
 from fnn.model.reductions import Mean
 from fnn.model.units import Poisson
 from fnn.model.networks import Visual
+from fnn.model.auto import build_autoregressive_video_model
 
 
 def network(units):
@@ -89,3 +90,53 @@ def network(units):
         units=units,
     )
     return network
+
+
+def autoregressive_model():
+    """
+    Parameters
+    ----------
+    units : int
+        number of units
+
+    Returns
+    -------
+    fnn.model.networks.Visual
+        visual neural network
+    """
+    feedforward = InputDense(
+        input_spatial=6,
+        input_stride=2,
+        block_channels=[32, 64, 128],
+        block_groups=[1, 2, 4],
+        block_layers=[2, 2, 2],
+        block_temporals=[3, 3, 3],
+        block_spatials=[3, 3, 3],
+        block_pools=[2, 2, 1],
+        out_channels=128,
+        nonlinear="gelu",
+    )
+    recurrent = CvtLstm(
+        in_channels=256,
+        out_channels=128,
+        hidden_channels=256,
+        common_channels=512,
+        groups=8,
+        spatial=3,
+    )
+    core = FeedforwardRecurrent(
+        feedforward=feedforward,
+        recurrent=recurrent,
+    )
+    return core
+
+
+def frame_autoregressive_model(pred_steps=5):
+    """Return simplified autoregressive frame prediction model (core + decoder only).
+
+    Parameters
+    ----------
+    pred_steps : int
+        Number of future frames to predict autoregressively.
+    """
+    return build_autoregressive_video_model(pred_steps=pred_steps)
