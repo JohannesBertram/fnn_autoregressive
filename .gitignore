@@ -126,3 +126,4 @@ venv.bak/
 .DS_Store
 
 input_data
+checkpoints
