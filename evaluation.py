@@ -10,7 +10,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 pred_steps = 5
 batch_size = 16 # Use a slightly larger batch for efficient evaluation
 decay = 0.9
-checkpoint_dir = "checkpoints"
+checkpoint_dir = "example_checkpoints"
 
 # --- Utility Functions ---
 
@@ -23,7 +23,7 @@ def get_latest_checkpoint(checkpoint_dir):
     # Extract epoch number and sort
     epochs = [int(f.split('_')[-1].replace('.pt', '')) for f in checkpoints]
     latest_epoch = max(epochs)
-    latest_epoch = 8
+    latest_epoch = 10
     latest_file = os.path.join(checkpoint_dir, f"autoregressive_fnn_epoch_{latest_epoch}.pt")
     return latest_file, latest_epoch
 
@@ -377,3 +377,127 @@ plt.tight_layout(rect=[0, 0.03, 0.9, 0.95]) # Adjust layout for suptitle and col
 plt.savefig("fig/grat_seq.png")
 
 print("Visualization complete.")
+
+def generate_split_grating(num_frames, H, W, speed=10, frequency=0.01, max_val=255.0):
+    """
+    Generates a sequence with split gratings: left half moves up, right half moves down.
+    
+    Args:
+        num_frames (int): Total number of frames in the sequence.
+        H (int): Height of each frame.
+        W (int): Width of each frame.
+        speed (float): How many pixels the grating shifts per frame.
+        frequency (float): Spatial frequency of the grating (controls stripe thickness).
+        max_val (float): Maximum pixel value (e.g., 255 for uint8, 1.0 for float).
+    
+    Returns:
+        np.ndarray: [num_frames, H, W] array of the split moving grating sequence.
+    """
+    grating_sequence = np.zeros((num_frames, H, W), dtype=np.float32)
+    mid_point = W // 2
+    
+    # Generate vertical grating pattern
+    y = np.linspace(0, 2 * np.pi * frequency * H, H)
+    
+    for t in range(num_frames):
+        frame = np.zeros((H, W), dtype=np.float32)
+        
+        # Left half: moving upward (negative shift)
+        shift_left = -t * speed
+        pattern_left = np.cos(y + shift_left * 2 * np.pi * frequency)
+        grating_left = (pattern_left + 1) / 2 * max_val
+        frame[:, :mid_point] = grating_left[:, np.newaxis]
+        
+        # Right half: moving downward (positive shift)
+        shift_right = t * speed
+        pattern_right = np.cos(y + shift_right * 2 * np.pi * frequency)
+        grating_right = (pattern_right + 1) / 2 * max_val
+        frame[:, mid_point:] = grating_right[:, np.newaxis]
+        
+        grating_sequence[t, :, :] = frame
+    
+    # Normalize to [0, 1] as the model expects
+    return grating_sequence / max_val
+
+
+# Generate split grating
+split_grating = generate_split_grating(45, 144, 256)
+print(f"Split grating shape: {split_grating.shape}")
+
+# Visualization for split grating
+print("\nGenerating Split Grating Visualizations...")
+
+vis_clip_split = torch.Tensor(split_grating).unsqueeze(0).unsqueeze(2).to(device)
+
+# Define input/target split for visualization
+vis_context_split = vis_clip_split[:, :vis_input_len]
+vis_target_split = vis_clip_split[:, vis_input_len:vis_input_len + pred_steps]
+
+# Generate prediction
+with torch.no_grad():
+    vis_preds_split = model(vis_context_split)
+
+# Convert tensors to numpy for plotting
+context_np_split = vis_context_split.squeeze().cpu().numpy()
+target_np_split = vis_target_split.squeeze().cpu().numpy()
+preds_np_split = vis_preds_split.squeeze().cpu().numpy()
+
+# Calculate difference in consecutive predictions
+pred_diff_np_split = np.abs(preds_np_split[1:] - preds_np_split[:-1])
+
+# Create figure
+fig, axes = plt.subplots(
+    nrows=3, 
+    ncols=pred_steps + 1,
+    figsize=(16, 10)
+)
+plt.suptitle(
+    f'Split Grating Prediction (Left↑ Right↓) - Epoch {latest_epoch} | Test Loss: {avg_test_loss:.4f}', 
+    fontsize=14
+)
+
+# Row 1: Predictions
+axes[0, 0].text(0.5, 0.5, 'PREDICTIONS:', ha='center', va='center', fontsize=12, color='green')
+axes[0, 0].axis('off')
+for i in range(pred_steps):
+    ax = axes[0, i + 1]
+    ax.imshow(preds_np_split[i], cmap='gray', vmin=0, vmax=1)
+    ax.set_title(f'Pred T+{i+1}', color='red')
+    ax.axis('off')
+
+# Row 2: Ground Truth
+axes[1, 0].text(0.5, 0.5, 'TARGETS:', ha='center', va='center', fontsize=12, color='green')
+axes[1, 0].axis('off')
+for i in range(pred_steps):
+    ax = axes[1, i + 1]
+    ax.imshow(target_np_split[i], cmap='gray', vmin=0, vmax=1)
+    ax.set_title(f'Target T+{i+1}', color='green')
+    ax.axis('off')
+
+for i in range(pred_steps + 1, axes.shape[1]):
+    axes[1, i].axis('off')
+
+# Row 3: Differences
+axes[2, 0].text(0.5, 0.5, 'DIFF(|P(t+1)-P(t)|):', ha='center', va='center', fontsize=12, color='purple')
+axes[2, 0].axis('off')
+
+max_diff_split = np.max(pred_diff_np_split) * 1.1 if np.max(pred_diff_np_split) > 0 else 0.1
+num_diff_frames_split = pred_diff_np_split.shape[0]
+
+for i in range(num_diff_frames_split):
+    ax = axes[2, i + 1]
+    im = ax.imshow(pred_diff_np_split[i], cmap='plasma', vmin=0, vmax=max_diff_split)
+    ax.set_title(f'Diff T+{i+1}/{i+2}', color='purple')
+    ax.axis('off')
+
+if max_diff_split > 0:
+    cbar_ax = fig.add_axes([0.92, 0.1, 0.015, 0.25])
+    fig.colorbar(im, cax=cbar_ax)
+
+for i in range(num_diff_frames_split + 1, axes.shape[1]):
+    axes[2, i].axis('off')
+
+plt.tight_layout(rect=[0, 0.03, 0.9, 0.95])
+plt.savefig("fig/split_grat_seq.png")
+
+print("Split grating visualization complete.")
